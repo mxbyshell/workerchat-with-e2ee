@@ -1,0 +1,1337 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>端到端加密聊天室</title>
+    <script src="https://unpkg.com/openpgp@6.2.0/dist/openpgp.min.js"></script>
+    <style>
+        :root {
+            --primary: #4a6fa5;
+            --secondary: #6b8cbc;
+            --light: #f0f4f8;
+            --dark: #2c3e50;
+            --success: #27ae60;
+            --warning: #f39c12;
+            --danger: #e74c3c;
+        }
+        
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #1a2a6c, #b21f1f, #1a2a6c);
+            color: var(--light);
+            min-height: 100vh;
+            padding: 0;
+            margin: 0;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 300px 1fr;
+            gap: 20px;
+            height: 100vh;
+            padding: 15px;
+        }
+        
+        .panel {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 15px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .header {
+            padding: 15px;
+            padding-bottom: 10px;
+            margin-bottom: 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+            position: relative; /* 确保内部元素定位正确 */
+        }
+        
+        h1, h2, h3 {
+            color: white;
+            margin-bottom: 10px;
+        }
+        
+        .connection-status {
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 0.85em;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        
+        .status-connected {
+            background: var(--success);
+        }
+        
+        .status-connecting {
+            background: var(--warning);
+        }
+        
+        .status-disconnected {
+            background: var(--danger);
+        }
+        
+        .user-list {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 10px;
+        }
+        
+        .user-item {
+            padding: 9px;
+            margin-bottom: 10px;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .user-item:hover {
+            background: rgba(255, 255, 255, 0.15);
+            transform: translateX(5px);
+        }
+        
+        .user-item.self {
+            background: rgba(74, 111, 165, 0.3);
+        }
+        
+        .user-name {
+            font-weight: bold;
+            margin-bottom: 2px;
+        }
+        
+        .user-id {
+            font-size: 0.75em;
+            color: #bbb;
+            word-break: break-all;
+            font-family: monospace;
+        }
+        
+        .user-email {
+            font-size: 0.8em;
+            color: #aaa;
+        }
+
+        .chat-area {
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+        }
+
+        .messages {
+            flex: 1;
+            overflow-y: auto;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+        
+        .message {
+            padding: 12px;
+            margin-bottom: 10px;
+            border-radius: 12px;
+            max-width: 90%;
+            word-wrap: break-word;
+        }
+        
+        .message.sent {
+            background: var(--primary);
+            align-self: flex-end;
+            margin-left: 10%;
+        }
+        
+        .message.received {
+            background: var(--dark);
+            align-self: flex-start;
+            margin-right: 10%;
+        }
+        
+        .message.encrypted {
+            background: rgba(231, 76, 60, 0.3);
+            border: 1px solid var(--danger);
+        }
+        
+        .sender-info {
+            font-weight: bold;
+            margin-bottom: 5px;
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85em;
+        }
+        
+        .sender-name {
+            color: #4ec9b0;
+            font-size: large;
+        }
+        
+        .sender-id {
+            font-weight: normal;
+            font-size: 0.65em;
+            color: #bbb;
+        }
+
+        .message-time {
+            font-size: 0.75em;
+            opacity: 0.7;
+        }
+        
+        .message-text {
+            line-height: 1.4;
+        }
+        
+        .input-area {
+            display: flex;
+            gap: 10px;
+            padding: 10px;
+            background: rgba(0, 0, 0, 0.3);
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        textarea {
+            flex: 1;
+            padding: 12px;
+            border-radius: 8px;
+            border: none;
+            background: rgba(255, 255, 255, 0.1);
+            color: white;
+            resize: none;
+            min-height: 60px;
+        }
+        
+        button {
+            padding: 12px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        
+        button:hover {
+            background: var(--secondary);
+        }
+        
+        button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        .key-management {
+            margin-top: 20px;
+            padding: 15px 10px 10px;
+            border-top: 1px solid rgba(255, 255, 255, 0.2);
+        }
+        
+        .key-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            font-size: 0.9em;
+        }
+        
+        .key-id {
+            word-break: break-all;
+            font-family: monospace;
+            font-size: 0.65em;
+            color: #4ec9b0;
+        }
+        
+        .key-buttons {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-bottom: 10px;
+        }
+        
+        .key-buttons button {
+            padding: 8px 12px;
+            font-size: 0.85em;
+        }
+        
+        .notification {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
+            border-radius: 8px;
+            background: var(--success);
+            color: white;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+            z-index: 1000;
+            transform: translateX(120%);
+            transition: transform 0.3s ease;
+            max-width: 300px;
+        }
+        
+        .notification.show {
+            transform: translateX(0);
+        }
+        
+        .notification.error {
+            background: var(--danger);
+        }
+        
+        .notification.warning {
+            background: var(--warning);
+        }
+        
+        .debug-info {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 10px;
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.8em;
+            max-height: 200px;
+            overflow-y: auto;
+            margin-top: 10px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .room-url {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 8px;
+            border-radius: 6px;
+            font-family: monospace;
+            font-size: 0.8em;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+
+        #roomName {
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: calc(100% - 60px); /* 右侧预留40px空间 */
+            display: inline-block; /* 确保宽度自适应 */
+            vertical-align: bottom; /* 保持垂直对齐 */
+            padding-right: 10px; /* 右侧内边距 */
+        }
+
+        /* 移动端优化样式 */
+        @media (max-width: 768px) {
+            body {
+                padding: 0;
+            }
+
+            .container {
+                grid-template-columns: 1fr;
+                grid-template-rows: 1fr;
+                gap: 0;
+                padding: 0;
+            }
+
+            .panel {
+                border-radius: 0;
+                height: 100vh;
+                box-shadow: none;
+                border: none;
+            }
+
+            .chat-area {
+                height: 100%;
+            }
+
+            .messages {
+                border-radius: 0;
+                padding-bottom: 90px; /* 防止输入框遮挡消息 */
+            }
+            
+            /* 管理面板样式 */
+            .manage-area {
+                position: fixed;
+                top: 0;
+                left: -100%; 
+                width: 80%;
+                height: 100vh !important;
+                border-radius: 0 15px 15px 0;
+                z-index: 101;
+                transition: left 0.3s ease-out;
+            }   
+
+            .manage-area.expanded {
+                left: 0; 
+            }
+            
+            .overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.5);
+                z-index: 100;
+            }
+            
+            .slide-toggle {
+                position: fixed;
+                top: 18px;
+                left: 16px;
+                z-index: 102;
+                background: rgba(255, 255, 255, 0.16);
+                border-radius: 50%;
+                width: 48px;
+                height: 48px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                backdrop-filter: blur(10px);
+                box-shadow: 0 4px 12px rgba(0,0,0,0.16);
+                transition: all 0.3s cubic-bezier(0.2, 0, 0, 1);
+            }
+            
+            .material-symbols-outlined {
+                font-size: 28px;
+                color: white;
+                font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+                transition: transform 0.3s ease;
+            }
+            
+            .slide-toggle.expanded .material-symbols-outlined {
+                font-variation-settings: 'FILL' 0, 'wght' 600, 'GRAD' 0, 'opsz' 28;
+                transform: rotate(180deg);
+            }
+            
+            /* 移动端输入区域优化 */
+            .input-area {
+                position: fixed;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                padding: 15px;
+                border-radius: 0;
+                z-index: 99;
+                transition: transform 0.2s ease;
+            }
+            
+            textarea {
+                min-height: 50px;
+                font-size: 16px; /* 提高移动端可读性 */
+            }
+            
+            button#sendButton {
+                min-width: 70px;
+                align-self: flex-end;
+            }
+            
+            .room-url {
+                overflow: hidden;
+                text-overflow: ellipsis;
+                white-space: nowrap;
+                font-size: 0.75em;
+            }
+
+            #roomName {
+                max-width: calc(100% - 80px); /* 移动端预留更多空间 */
+                padding-right: 5px;
+            }
+        }
+
+    </style>
+</head>
+<body>
+    <div id="overlay" class="overlay"></div>
+
+    <div class="container">
+        <div class="panel manage-area">
+            <div class="header">
+                <h2>在线用户</h2>
+                <div id="connectionStatus" class="connection-status status-disconnected">
+                    未连接
+                </div>
+            </div>
+            <div class="user-list" id="userList">
+                <div style="text-align: center; color: #999; padding: 20px;">
+                    等待连接...
+                </div>
+            </div>
+            <div class="key-management">
+                <h3>密钥管理</h3>
+                <div class="key-info">
+                    <div>你的密钥ID:</div>
+                    <div id="keyId" class="key-id">未注册</div>
+                </div>
+                <div class="key-buttons">
+                    <button id="importPublicKey">导入公钥</button>
+                    <button id="importPrivateKey">导入私钥</button>
+                    <button id="copyPublicKey">复制公钥</button>
+                    <button id="generateKeys">生成密钥</button>
+                </div>
+                <div class="debug-info" id="debugInfo"></div>
+            </div>
+        </div>
+
+        <div class="panel chat-area">
+            <div class="header">
+                <h2 id="roomName">E2EE Chat Room</h2>
+                <div class="room-url" id="roomUrl"></div>
+            </div>
+            <div class="messages" id="messages"></div>
+                <div class="input-area">
+                    <textarea id="messageInput" placeholder="输入消息..." rows="1" disabled></textarea>
+                    <button id="sendButton" disabled>发送</button>
+                </div>
+        </div>
+    </div>
+    
+    <div class="notification" id="notification"></div>
+
+    <script>
+        // ========================
+        // 全局变量
+        // ========================
+        let privateKey = '';
+        let publicKey = '';
+        let userId = '';
+        let userName = '';
+        let userEmail = '';
+        let websocket = null;
+        let roomId = '';
+        let users = new Map();
+        let reconnectAttempts = 0;
+        let maxReconnectAttempts = 5;
+        let isMobile = null; // 占位符 具体判断看后面util部分的getter
+
+        // DOM元素
+        const userListEl = document.getElementById('userList');
+        const messagesEl = document.getElementById('messages');
+        const messageInputEl = document.getElementById('messageInput');
+        const sendButtonEl = document.getElementById('sendButton');
+        const generateKeysBtn = document.getElementById('generateKeys');
+        const importPublicKeyBtn = document.getElementById('importPublicKey');
+        const importPrivateKeyBtn = document.getElementById('importPrivateKey');
+        const copyPublicKeyBtn = document.getElementById('copyPublicKey');
+        const keyIdEl = document.getElementById('keyId');
+        const notificationEl = document.getElementById('notification');
+        const debugInfoEl = document.getElementById('debugInfo');
+        const connectionStatusEl = document.getElementById('connectionStatus');
+        const roomUrlEl = document.getElementById('roomUrl');
+        const manageArea = document.querySelector('.manage-area');
+        const overlayEl = document.getElementById('overlay');
+
+        // ========================
+        // 工具函数
+        // ========================
+        
+        // 判断是否为移动设备
+        Object.defineProperty(window, 'isMobile', {
+            get() { // 全局变量+Getter
+                return window.innerWidth <= 768;
+            }
+        });
+
+        // 获取房间ID
+        async function fetchRoomId() {
+            try {
+                const response = await fetch("/api/room", {
+                    method: "POST",
+                    headers: {
+                        "Content-Type": "application/json"
+                    }
+                });
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                return response.text();
+            } catch (error) {
+                debugLog("获取房间ID失败: " + error.message);
+                return null;
+            }
+        }
+
+        // 调试日志函数
+        function debugLog(message) {
+            console.log(message);
+            const timestamp = new Date().toLocaleTimeString();
+            debugInfoEl.textContent += `${timestamp}: ${message}\n`;
+            debugInfoEl.scrollTop = debugInfoEl.scrollHeight;
+        }
+        
+        // 显示通知
+        function showNotification(message, type = 'success') {
+            notificationEl.textContent = message;
+            notificationEl.className = 'notification';
+            
+            if (type === 'error') {
+                notificationEl.classList.add('error');
+            } else if (type === 'warning') {
+                notificationEl.classList.add('warning');
+            }
+            
+            notificationEl.classList.add('show');
+            
+            setTimeout(() => {
+                notificationEl.classList.remove('show');
+            }, 3000);
+        }
+        
+        // ========================
+        // WebSocket相关函数
+        // ========================
+        
+        function getWebSocketUrl() {
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.host;
+            return `${protocol}//${host}/api/room/${roomId}/websocket`;
+        }
+
+        async function connectWebSocket() {
+            try {
+                const wsUrl = getWebSocketUrl();
+                debugLog(`尝试连接WebSocket: ${wsUrl}`);
+                updateConnectionStatus("connecting");
+            
+                websocket = new WebSocket(wsUrl);
+                setupWebSocketHandlers();
+            
+            } catch (error) {
+                debugLog("WebSocket连接失败: " + error.message);
+                updateConnectionStatus("disconnected");
+                showNotification("连接失败: " + error.message, "error");
+            
+                // 尝试重新获取房间ID并重连
+                try {
+                    roomId = await fetchRoomId();
+                    debugLog(`重新获取房间ID: ${roomId}`);
+                    setTimeout(() => connectWebSocket(), 2000);
+                } catch (retryError) {
+                    debugLog("重新获取房间ID失败: " + retryError.message);
+                }
+            }
+        }
+
+        function setupWebSocketHandlers() {
+            if (!websocket) return;
+            
+            websocket.onopen = () => {
+                debugLog('WebSocket连接已建立');
+                updateConnectionStatus('connected');
+                reconnectAttempts = 0;
+                
+                // 如果有公钥，立即注册
+                if (publicKey) {
+                    registerUser();
+                }
+                
+                // 启用UI
+                enableUI();
+            };
+            
+            websocket.onmessage = (event) => {
+                try {
+                    const data = JSON.parse(event.data);
+                    handleWebSocketMessage(data);
+                } catch (error) {
+                    debugLog('解析消息失败: ' + error.message);
+                }
+            };
+            
+            websocket.onclose = () => {
+                debugLog('WebSocket连接已关闭');
+                updateConnectionStatus('disconnected');
+                disableUI();
+                
+                // 自动重连
+                if (reconnectAttempts < maxReconnectAttempts) {
+                    reconnectAttempts++;
+                    setTimeout(() => {
+                        debugLog(`尝试重连 (${reconnectAttempts}/${maxReconnectAttempts})`);
+                        connectWebSocket();
+                    }, 2000 * reconnectAttempts);
+                }
+            };
+            
+            websocket.onerror = (error) => {
+                debugLog("WebSocket错误: " + error);
+                showNotification('连接错误', 'error');
+            };
+        }
+        
+        function updateConnectionStatus(status) {
+            connectionStatusEl.className = `connection-status status-${status}`;
+            switch (status) {
+                case 'connected':
+                    connectionStatusEl.textContent = '已连接';
+                    break;
+                case 'connecting':
+                    connectionStatusEl.textContent = '连接中...';
+                    break;
+                case 'disconnected':
+                    connectionStatusEl.textContent = '未连接';
+                    break;
+            }
+        }
+        
+        function enableUI() {
+            if (publicKey) {
+                messageInputEl.disabled = false;
+                sendButtonEl.disabled = false;
+            }
+        }
+        
+        function disableUI() {
+            messageInputEl.disabled = true;
+            sendButtonEl.disabled = true;
+        }
+        
+        function registerUser() {
+            if (websocket && websocket.readyState === WebSocket.OPEN && publicKey) {
+                debugLog('发送用户注册请求');
+                websocket.send(JSON.stringify({
+                    type: 'register',
+                    publicKey: publicKey
+                }));
+            }
+        }
+        
+        function handleWebSocketMessage(data) {
+            debugLog('收到消息: ' + data.type);
+            
+            switch (data.type) {
+                case 'registered':
+                case 'authenticated':
+                    userId = data.profile.id;
+                    userName = data.profile.name;
+                    userEmail = data.profile.email;
+                    keyIdEl.textContent = userId;
+                    showNotification('身份验证成功');
+                    enableUI();
+                    
+                    // 请求用户列表
+                    websocket.send(JSON.stringify({ type: 'getUsers' }));
+                    break;
+                    
+                case 'encryptedMessage':
+                    handleEncryptedMessage(data);
+                    break;
+                    
+                case 'userList':
+                    updateUserList(data.users);
+                    break;
+                    
+                case 'error':
+                    showNotification(data.message, 'error');
+                    debugLog('服务器错误: ' + data.message);
+                    break;
+                    
+                default:
+                    debugLog('未知消息类型: ' + data.type);
+            }
+        }
+        
+        // ========================
+        // 密钥管理函数
+        // ========================
+        
+        // 加载本地密钥
+        async function loadLocalKeys() {
+            try {
+                privateKey = localStorage.getItem('pgpPrivateKey') || '';
+                publicKey = localStorage.getItem('pgpPublicKey') || '';
+                
+                if (publicKey) {
+                    debugLog('正在解析本地公钥...');
+                    const pubKey = await openpgp.readKey({ armoredKey: publicKey });
+                    const userID = pubKey.users[0].userID;
+                    
+                    userId = pubKey.getKeyID().toHex();
+                    userName = userID?.name || '匿名';
+                    userEmail = userID?.email || '';
+                    
+                    keyIdEl.textContent = userId;
+                    debugLog('本地密钥加载成功');
+                }
+            } catch (error) {
+                debugLog('公钥解析失败: ' + error.message);
+                showNotification('本地密钥解析失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 导入密钥
+        async function importKey(type) {
+            return new Promise((resolve) => {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = '.asc,.pgp,.txt';
+                
+                fileInput.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (!file) {
+                        resolve();
+                        return;
+                    }
+                    
+                    try {
+                        debugLog(`开始导入${type}密钥文件: ${file.name}`);
+                        let text = await file.text();
+                        
+                        if (type === 'public') {
+                            const pubKey = await openpgp.readKey({ armoredKey: text });
+                            if (pubKey.isPrivate()) {
+                                throw new Error('这不是一个有效的公钥');
+                            }
+                            
+                            publicKey = text;
+                            localStorage.setItem('pgpPublicKey', publicKey);
+                            
+                            const userID = pubKey.users[0].userID;
+                            userId = pubKey.getKeyID().toHex();
+                            userName = userID?.name || '匿名';
+                            userEmail = userID?.email || '';
+                            
+                            keyIdEl.textContent = userId;
+                            showNotification('公钥导入成功');
+                            debugLog('公钥导入成功，用户ID: ' + userId);
+                            
+                            // 重新注册
+                            if (websocket && websocket.readyState === WebSocket.OPEN) {
+                                registerUser();
+                            }
+                            
+                        } else if (type === 'private') {
+                            const privKey = await openpgp.readPrivateKey({ armoredKey: text });
+                            if (!privKey.isPrivate()) {
+                                throw new Error('这不是一个有效的私钥');
+                            }
+                            
+                            privateKey = text;
+                            localStorage.setItem('pgpPrivateKey', privateKey);
+                            
+                            // 如果还没有公钥，从私钥中提取
+                            if (!publicKey) {
+                                publicKey = privKey.toPublic().armor();
+                                localStorage.setItem('pgpPublicKey', publicKey);
+                                
+                                const userID = privKey.users[0].userID;
+                                userId = privKey.getKeyID().toHex();
+                                userName = userID?.name || '匿名';
+                                userEmail = userID?.email || '';
+                                
+                                keyIdEl.textContent = userId;
+                                
+                                // 重新注册
+                                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                                    registerUser();
+                                }
+                            }
+                            
+                            showNotification('私钥导入成功');
+                            debugLog('私钥导入成功');
+                        }
+                        
+                    } catch (error) {
+                        debugLog(`${type}密钥导入失败: ` + error.message);
+                        showNotification(`${type}密钥导入失败: ` + error.message, 'error');
+                    }
+                    
+                    resolve();
+                };
+                
+                fileInput.click();
+            });
+        }
+        
+        // 复制公钥
+        async function copyPublicKey() {
+            if (!publicKey) {
+                showNotification('没有可复制的公钥', 'warning');
+                return;
+            }
+            
+            try {
+                await navigator.clipboard.writeText(publicKey);
+                showNotification('公钥已复制到剪贴板');
+            } catch (error) {
+                // fallback方法
+                const textArea = document.createElement('textarea');
+                textArea.value = publicKey;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                showNotification('公钥已复制到剪贴板');
+            }
+        }
+        
+        // 生成新密钥
+        async function generateNewKeys() {
+            try {
+                debugLog('开始生成新密钥对...');
+                showNotification('正在生成密钥，请稍候...', 'warning');
+                
+                // 生成密钥对
+                const { privateKey: privKey, publicKey: pubKey } = await openpgp.generateKey({
+                    type: 'ecc',
+                    curve: 'curve25519',
+                    userIDs: [{ 
+                        name: prompt('请输入您的名字'), // 这里如果留空的话openpgp会自动生成一对 似乎不是未定义行为（？
+                        email: prompt('请输入您的邮箱')
+                    }],
+                    passphrase: ''
+                });
+                
+                debugLog('密钥对生成完成');
+                
+                // 保存密钥
+                privateKey = privKey;
+                publicKey = pubKey;
+                localStorage.setItem('pgpPrivateKey', privateKey);
+                localStorage.setItem('pgpPublicKey', publicKey);
+                debugLog('密钥已保存到本地存储');
+                
+                // 提取用户信息
+                const pubKeyObj = await openpgp.readKey({ armoredKey: publicKey });
+                const userID = pubKeyObj.users[0].userID;
+                userId = pubKeyObj.getKeyID().toHex();
+                userName = userID?.name || '匿名用户';
+                userEmail = userID?.email || '';
+                
+                keyIdEl.textContent = userId;
+                debugLog('密钥生成成功，用户ID: ' + userId);
+                
+                showNotification('新密钥已生成');
+                
+                // 重新注册
+                if (websocket && websocket.readyState === WebSocket.OPEN) {
+                    registerUser();
+                }
+                
+            } catch (error) {
+                debugLog('生成密钥失败: ' + error.message);
+                showNotification('生成密钥失败: ' + error.message, 'error');
+            }
+        }
+        
+        // ========================
+        // 消息处理函数
+        // ========================
+        
+        // 处理加密消息
+        async function handleEncryptedMessage(data) {
+            debugLog(`收到来自 ${data.senderId} 的加密消息`);
+            
+            // 尝试解密消息
+            if (!privateKey) {
+                displayEncryptedMessage(data, '需要私钥才能解密此消息');
+                return;
+            }
+            
+            try {
+                const encryptedMessage = await openpgp.readMessage({
+                    armoredMessage: data.encryptedData
+                });
+                
+                const privKey = await openpgp.readPrivateKey({
+                    armoredKey: privateKey
+                });
+                
+                const { data: decrypted } = await openpgp.decrypt({
+                    message: encryptedMessage,
+                    decryptionKeys: privKey,
+                    format: 'text'
+                });
+                
+                displayMessage({
+                    senderId: data.senderId,
+                    text: decrypted,
+                    timestamp: data.timestamp,
+                    isSelf: data.senderId === userId
+                });
+                
+                debugLog('消息解密成功');
+                
+            } catch (error) {
+                debugLog('解密失败: ' + error.message);
+                displayEncryptedMessage({
+                    senderId: data.senderId,
+                    text: data.encryptedData,
+                    timestamp: data.timestamp,
+                    isSelf: data.senderId === userId
+                }, '解密失败: ' + error.message);
+            }
+        }
+        
+        // 获取URL中的roomId
+        function getRoomIdFromURL() {
+            const urlParams = new URLSearchParams(window.location.search);
+            return urlParams.get('room');
+        }
+        
+        // 更新URL以包含房间ID
+        function updateURLWithRoomId(roomId) {
+            const newUrl = new URL(window.location);
+            newUrl.searchParams.set('room', roomId);
+            window.history.replaceState(null, '', newUrl.toString());
+        }
+
+        // 显示加密消息（无法解密时）
+        function displayEncryptedMessage(message, reason) {
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${message.isSelf ? 'sent' : 'received'} encrypted`;
+        
+            const timeString = new Date(message.timestamp).toLocaleTimeString();
+            const senderInfo = users.get(message.senderId) || {
+                name: message.senderId.slice(-16),
+                email: ''
+            };
+        
+            // 创建发送者信息部分
+            const senderInfoEl = document.createElement('div');
+            senderInfoEl.className = 'sender-info';
+        
+            const senderNameEl = document.createElement('span');
+            senderNameEl.className = 'sender-name';
+            senderNameEl.textContent = senderInfo.name;
+        
+            const senderIdEl = document.createElement('span');
+            senderIdEl.className = 'sender-id';
+            senderIdEl.textContent = `[${message.senderId.slice(-16)}]`;
+        
+            const messageTimeEl = document.createElement('span');
+            messageTimeEl.className = 'message-time';
+            messageTimeEl.textContent = timeString;
+        
+            senderInfoEl.appendChild(senderNameEl);
+            senderInfoEl.appendChild(senderIdEl);
+            senderInfoEl.appendChild(messageTimeEl);
+        
+            // 创建消息文本部分
+            const messageTextEl = document.createElement('div');
+            messageTextEl.className = 'message-text';
+        
+            const encryptedNoticeEl = document.createElement('div');
+            encryptedNoticeEl.style.fontStyle = 'italic';
+            encryptedNoticeEl.style.color = '#ff6b6b';
+            encryptedNoticeEl.textContent = `🔒 ${reason}`;
+        
+            const detailsEl = document.createElement('details');
+            detailsEl.style.marginTop = '8px';
+        
+            const summaryEl = document.createElement('summary');
+            summaryEl.style.cursor = 'pointer';
+            summaryEl.style.fontSize = '0.8em';
+            summaryEl.textContent = '查看加密数据';
+        
+            const preEl = document.createElement('pre');
+            preEl.style.marginTop = '5px';
+            preEl.style.fontSize = '0.7em';
+            preEl.style.whiteSpace = 'pre-wrap';
+            preEl.style.wordBreak = 'break-all';
+            preEl.textContent = message.text; // 使用 textContent 防止 XSS
+        
+            detailsEl.appendChild(summaryEl);
+            detailsEl.appendChild(preEl);
+        
+            messageTextEl.appendChild(encryptedNoticeEl);
+            messageTextEl.appendChild(detailsEl);
+        
+            messageEl.appendChild(senderInfoEl);
+            messageEl.appendChild(messageTextEl);
+        
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        
+        // 显示消息
+        function displayMessage({ senderId, text, timestamp, isSelf }) {
+            const messageEl = document.createElement('div');
+            messageEl.className = `message ${isSelf ? 'sent' : 'received'}`;
+
+            const senderInfo = users.get(senderId) || {
+                name: senderId.slice(-16),
+                email: ''
+            };
+
+            const timeString = new Date(timestamp).toLocaleTimeString();
+
+            // 创建发送者信息部分
+            const senderInfoEl = document.createElement('div');
+            senderInfoEl.className = 'sender-info';
+
+            // 创建发送者名称部分
+            const senderNameEl = document.createElement('span');
+            senderNameEl.className = 'sender-name';
+            senderNameEl.textContent = senderInfo.name;
+
+            // 创建发送者ID部分
+            const senderIdEl = document.createElement('span');
+            senderIdEl.className = 'sender-id';
+            senderIdEl.textContent = `[${senderId.slice(-16)}]`;
+
+            // 将名称和ID添加到发送者名称元素中
+            senderNameEl.appendChild(senderIdEl);
+
+            // 创建时间部分
+            const messageTimeEl = document.createElement('span');
+            messageTimeEl.className = 'message-time';
+            messageTimeEl.textContent = timeString;
+
+            // 将名称和时间添加到发送者信息元素中
+            senderInfoEl.appendChild(senderNameEl);
+            senderInfoEl.appendChild(messageTimeEl);
+
+            // 创建消息文本部分
+            const messageTextEl = document.createElement('div');
+            messageTextEl.className = 'message-text';
+            messageTextEl.textContent = text; // 使用textContent而不是innerHTML防止XSS
+
+            // 将所有部分添加到消息元素中
+            messageEl.appendChild(senderInfoEl);
+            messageEl.appendChild(messageTextEl);
+        
+            messagesEl.appendChild(messageEl);
+            messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+
+        
+        // 更新用户列表
+        function updateUserList(userList) {
+            userListEl.innerHTML = '';
+            users.clear();
+            
+            debugLog(`更新用户列表，共 ${userList.length} 个用户`);
+            
+            userList.forEach(user => {
+                users.set(user.id, user);
+
+                const userEl = document.createElement('div');
+                userEl.className = 'user-item';
+                if (user.id === userId) {
+                    userEl.classList.add('self');
+                }
+
+                const idDisplay = user.id.slice(-16);
+
+                // 使用DOM API创建元素而不是innerHTML
+                const nameEl = document.createElement('div');
+                nameEl.className = 'user-name';
+                nameEl.textContent = user.name + (user.id === userId ? ' (你)' : '');
+
+                const idEl = document.createElement('div');
+                idEl.className = 'user-id';
+                idEl.textContent = idDisplay;
+
+                userEl.appendChild(nameEl);
+                userEl.appendChild(idEl);
+
+                if (user.email) {
+                    const emailEl = document.createElement('div');
+                    emailEl.className = 'user-email';
+                    emailEl.textContent = user.email;
+                    userEl.appendChild(emailEl);
+                }
+
+                userListEl.appendChild(userEl);
+            });
+            
+            if (userList.length === 0) {
+                userListEl.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无用户</div>';
+            }
+        }
+        
+        // 发送消息
+        async function sendMessage() {
+            const messageText = messageInputEl.value.trim();
+            if (!messageText) return;
+            
+            if (!publicKey) {
+                showNotification('请先导入或生成公钥', 'warning');
+                return;
+            }
+            
+            if (!websocket || websocket.readyState !== WebSocket.OPEN) {
+                showNotification('WebSocket未连接', 'error');
+                return;
+            }
+            
+            try {
+                debugLog('开始加密消息...');
+                
+                // 获取所有用户的公钥进行加密
+                const allUsers = Array.from(users.values());
+                const publicKeys = [];
+                
+                for (const user of allUsers) {
+                    try {
+                        const pubKey = await openpgp.readKey({ armoredKey: user.publicKey });
+                        publicKeys.push(pubKey);
+                    } catch (error) {
+                        debugLog(`无法读取用户 ${user.name} 的公钥: ${error.message}`);
+                    }
+                }
+                
+                if (publicKeys.length === 0) {
+                    showNotification('没有找到有效的公钥', 'warning');
+                    return;
+                }
+                
+                // 为所有用户加密消息
+                const encrypted = await openpgp.encrypt({
+                    message: await openpgp.createMessage({ text: messageText }),
+                    encryptionKeys: publicKeys,
+                    format: 'armored'
+                });
+                
+                debugLog(`消息加密成功，为 ${publicKeys.length} 个用户加密`);
+                
+                // 发送加密消息
+                websocket.send(JSON.stringify({
+                    type: 'message',
+                    encryptedData: encrypted
+                }));
+                
+                // 清空输入框
+                messageInputEl.value = '';
+                
+            } catch (error) {
+                debugLog('加密失败: ' + error.message);
+                showNotification('加密失败: ' + error.message, 'error');
+            }
+        }
+        
+        // ========================
+        // 事件监听器设置
+        // ========================
+        
+        function setupEventListeners() {
+            sendButtonEl.addEventListener('click', sendMessage);
+            messageInputEl.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                    if (!isMobile) e.preventDefault();
+                    sendMessage();
+                }
+            });
+            
+            generateKeysBtn.addEventListener('click', generateNewKeys);
+            importPublicKeyBtn.addEventListener('click', () => importKey('public'));
+            importPrivateKeyBtn.addEventListener('click', () => importKey('private'));
+            copyPublicKeyBtn.addEventListener('click', copyPublicKey);
+        }
+        
+        // ========================
+        // 初始化
+        // ========================
+        
+        // 面板切换处理
+        function setupSidebarToggle() {
+            const roomName = document.getElementById('roomName');
+            const overlay = document.getElementById('overlay');
+            const manageArea = document.querySelector('.manage-area');
+            const slideToggle = document.querySelector('.slide-toggle');
+            // 展开侧边栏
+            function expandSidebar() {
+                if (isMobile) return;
+                manageArea.classList.add('expanded');
+                overlay.style.display = 'block';
+                if (slideToggle) {
+                    slideToggle.classList.add('expanded');
+                }
+            }
+            
+            // 收起侧边栏
+            function collapseSidebar() {
+                if (isMobile) return;
+                manageArea.classList.remove('expanded');
+                overlay.style.display = 'none';
+                if (slideToggle) {
+                    slideToggle.classList.remove('expanded');
+                }
+            }
+            
+            // 点击标题展开侧边栏
+            roomName.addEventListener('click', expandSidebar);
+            
+            // 点击遮罩层收起侧边栏
+            overlay.addEventListener('click', collapseSidebar);
+            
+            // 响应窗口大小变化
+            window.addEventListener('resize', () => {
+                if (isMobile) {
+                    // 在非移动端时确保面板处于正常状态
+                    collapseSidebar();
+                }
+            });
+        }
+
+		// 初始化应用
+        document.addEventListener('DOMContentLoaded', async function() {
+            debugLog('应用初始化...');
+            
+
+            // 设置侧边栏切换
+            setupSidebarToggle();
+            
+            // 尝试从URL参数获取房间ID
+            const roomIdFromURL = getRoomIdFromURL();
+            
+            if (roomIdFromURL) {
+                // 使用URL中提供的房间ID
+                roomId = roomIdFromURL;
+                debugLog(`从URL参数获取房间ID: ${roomId}`);
+                showNotification(`正在加入房间: ${roomId.slice(0, 8)}...`, 'warning');
+            } else {
+                // 创建新房间
+                try {
+                    roomId = await fetchRoomId();
+                    debugLog(`创建新房间: ${roomId}`);
+                    
+                    // 更新URL以包含新房间ID
+                    updateURLWithRoomId(roomId);
+                    showNotification(`已创建聊天室: ${roomId.slice(0, 8)}...`);
+                } catch (error) {
+                    debugLog('获取房间ID失败: ' + error.message);
+                    showNotification('创建聊天室失败', 'error');
+                    return;
+                }
+            }
+            
+            // 更新UI
+            const roomName = document.getElementById('roomName');
+            roomName.textContent = `E2EE 聊天室 #${roomId}`;
+
+            roomUrlEl.innerHTML = `
+                <span id="copyRoomLink">${window.location.href} <span style="margin-left: 10px; padding: 4px 8px; background: var(--primary); border: none; border-radius: 4px; color: white; cursor: pointer;">复制链接</span></span>
+            `;
+            
+            // 添加复制房间链接按钮
+            document.getElementById('copyRoomLink')?.addEventListener('click', function() {
+                navigator.clipboard.writeText(window.location.href)
+                    .then(() => showNotification('房间链接已复制'))
+                    .catch(err => showNotification('复制失败: ' + err.message, 'error'));
+            });
+            
+            // 尝试加载本地密钥
+            await loadLocalKeys();
+            
+            // 连接WebSocket
+            await connectWebSocket();
+            
+            // 设置事件监听器
+            setupEventListeners();
+            
+            // 输入区域自动高度调整
+            messageInputEl.addEventListener('input', function() {
+                this.style.height = 'auto';
+                this.style.height = (this.scrollHeight) + 'px';
+            });
+        });
+    </script>
+</body>
+</html>
